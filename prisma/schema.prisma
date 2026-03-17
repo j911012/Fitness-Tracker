@@ -1,0 +1,68 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Get a free hosted Postgres database in seconds: `npx create-db`
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+model User {
+  id              String           @id @default(uuid())
+  email           String           @unique
+  name            String?
+  password        String?
+  createdAt       DateTime         @default(now())
+  bodyRecords     BodyRecord[]
+  workoutSessions WorkoutSession[]
+}
+
+model BodyRecord {
+  id        String   @id @default(uuid())
+  userId    String
+  date      DateTime @db.Date
+  weight    Float
+  bodyFat   Float?
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, date])
+}
+
+model WorkoutSession {
+  id          String            @id @default(uuid())
+  userId      String
+  date        DateTime          @db.Date
+  totalVolume Float?
+  totalSets   Int?
+  notes       String?
+  createdAt   DateTime          @default(now())
+  exercises   SessionExercise[]
+  user        User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model SessionExercise {
+  id           String         @id @default(uuid())
+  sessionId    String
+  exerciseName String
+  muscleGroup  String
+  order        Int
+  sets         ExerciseSet[]
+  session      WorkoutSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+}
+
+model ExerciseSet {
+  id                String @id @default(uuid())
+  sessionExerciseId String
+  setNum            Int
+  weight            Float
+  reps              Int
+  oneRmKg           Float?
+  sessionExercise   SessionExercise @relation(fields: [sessionExerciseId], references: [id], onDelete: Cascade)
+}
