@@ -1,8 +1,3 @@
-// This is your Prisma schema file,
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
-
-// Get a free hosted Postgres database in seconds: `npx create-db`
-
 generator client {
   provider = "prisma-client-js"
 }
@@ -13,56 +8,219 @@ datasource db {
   directUrl = env("DIRECT_URL")
 }
 
+// ─────────────────────────────────────────
+// ユーザー
+// ─────────────────────────────────────────
+
+// アプリを使うユーザー。認証の中心。
+// password は Google OAuth ログイン時は null になる。
 model User {
-  id              String           @id @default(uuid())
-  email           String           @unique
-  name            String?
-  password        String?
-  createdAt       DateTime         @default(now())
+  id        String   @id @default(uuid())
+  email     String   @unique
+  name      String?
+  password  String?
+  createdAt DateTime @default(now())
+
+  // 以下はリレーション（DBカラムには存在しない）
+  profile         UserProfile?
+  goal            Goal?
   bodyRecords     BodyRecord[]
+  foodItems       FoodItem[]
+  mealLogs        MealLog[]
   workoutSessions WorkoutSession[]
+  cardioLogs      CardioLog[]
+  customExercises CustomExercise[]
 }
 
+// ユーザーの身体情報。身長・性別・生年月日・活動レベルを持つ。
+// BMR（基礎代謝）や TDEE（消費カロリー）の計算に使う。
+// User と 1対1 の関係。
+model UserProfile {
+  userId        String    @id
+  height        Float? // cm
+  gender        String? // "male" | "female"
+  birthDate     DateTime?
+  activityLevel String? // "sedentary" | "light" | "moderate" | "active" | "very_active"
+
+  // @relation: userId カラムを外部キーとして User.id を参照する
+  // onDelete: Cascade = User が削除されたらこのレコードも自動削除
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // @@unique: userId の重複を禁止（1ユーザー1レコードを保証）
+  @@unique([userId])
+}
+
+// ユーザーの目標体重・期限・カロリー目標。
+// 設定画面で入力し、ダッシュボードの進捗表示に使う。
+// User と 1対1 の関係。
+model Goal {
+  userId       String    @id
+  targetWeight Float? // kg
+  deadline     DateTime?
+  tdee         Float? // 1日の総消費カロリー
+  dailyTarget  Float? // 1日の摂取カロリー目標
+
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId])
+}
+
+// ─────────────────────────────────────────
+// 体重・体組成
+// ─────────────────────────────────────────
+// @@unique([userId, date]): 同じユーザーの同じ日付のレコードは1件のみ
+// → 2件目を insert しようとするとエラー。upsert（あれば更新・なければ作成）で扱う。
+// ─────────────────────────────────────────
+
+// 毎日の体重・体脂肪率の記録。
+// 1ユーザーにつき1日1件のみ（@@unique）。
 model BodyRecord {
   id        String   @id @default(uuid())
   userId    String
-  date      DateTime @db.Date
-  weight    Float
-  bodyFat   Float?
+  date      DateTime @db.Date // 時刻なし（例: 2024-03-17）
+  weight    Float // kg
+  bodyFat   Float? // % (任意)
   createdAt DateTime @default(now())
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // @@unique([userId, date]): 同じユーザーの同じ日付は1件のみ許可
   @@unique([userId, date])
 }
 
+// ─────────────────────────────────────────
+// 食事記録
+// ─────────────────────────────────────────
+
+// 食品マスタ。カロリー・PFCを100gあたりで持つ。
+// isPublic=true はアプリ共通の食品（管理者が用意）。
+// isPublic=false はユーザーが自作した食品。
+model FoodItem {
+  id          String  @id @default(uuid())
+  userId      String? // null = 共通食品
+  name        String
+  kcalPer100g Float
+  protein     Float // g
+  carbs       Float // g
+  fat         Float // g
+  isPublic    Boolean @default(false)
+
+  mealItems MealItem[]
+  // onDelete: SetNull = User が削除されても食品マスタは残す（userId を null にする）
+  user      User?      @relation(fields: [userId], references: [id], onDelete: SetNull)
+}
+
+// 食事ログ。「いつ・どの食事（朝/昼/夜/間食）」を表す。
+// MealItem を複数持つ（1食に複数の食品）。
+model MealLog {
+  id        String   @id @default(uuid())
+  userId    String
+  date      DateTime @db.Date
+  mealType  MealType // BREAKFAST / LUNCH / DINNER / SNACK
+  createdAt DateTime @default(now())
+
+  items MealItem[]
+  user  User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+// MealType: 朝食・昼食・夕食・間食
+enum MealType {
+  BREAKFAST
+  LUNCH
+  DINNER
+  SNACK
+}
+
+// 食事ログの明細。「何を何g食べたか」。
+// kcal は記録時点の値を保持（食品マスタが変わっても履歴が壊れないように）。
+model MealItem {
+  id         String @id @default(uuid())
+  mealLogId  String
+  foodItemId String
+  grams      Float
+  kcal       Float // 記録時に計算して保存
+
+  mealLog  MealLog  @relation(fields: [mealLogId], references: [id], onDelete: Cascade)
+  foodItem FoodItem @relation(fields: [foodItemId], references: [id])
+}
+
+// ─────────────────────────────────────────
+// 筋トレ記録
+// ─────────────────────────────────────────
+
+// 1回のトレーニングセッション（例: 2024-03-17 の胸・肩の日）。
+// totalVolume = 全セットの 重量×回数 の合計。
 model WorkoutSession {
-  id          String            @id @default(uuid())
+  id          String   @id @default(uuid())
   userId      String
-  date        DateTime          @db.Date
-  totalVolume Float?
+  date        DateTime @db.Date
+  totalVolume Float? // kg（セット保存時に自動集計）
   totalSets   Int?
   notes       String?
-  createdAt   DateTime          @default(now())
-  exercises   SessionExercise[]
-  user        User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt   DateTime @default(now())
+
+  exercises SessionExercise[]
+  user      User              @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
+// セッション内の各種目（例: ベンチプレス・スクワット）。
+// order = 表示順。
 model SessionExercise {
-  id           String         @id @default(uuid())
+  id           String @id @default(uuid())
   sessionId    String
   exerciseName String
-  muscleGroup  String
+  muscleGroup  String // 胸・背中・脚・肩・腕・腹
   order        Int
-  sets         ExerciseSet[]
-  session      WorkoutSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  sets    ExerciseSet[]
+  session WorkoutSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
 }
 
+// 各種目のセット（例: 80kg × 10回）。
+// oneRmKg = O'Connor式で計算した推定1RM（weight × (1 + reps/40)）。
 model ExerciseSet {
   id                String @id @default(uuid())
   sessionExerciseId String
   setNum            Int
-  weight            Float
+  weight            Float // kg
   reps              Int
-  oneRmKg           Float?
-  sessionExercise   SessionExercise @relation(fields: [sessionExerciseId], references: [id], onDelete: Cascade)
+  oneRmKg           Float? // 推定最大重量
+
+  sessionExercise SessionExercise @relation(fields: [sessionExerciseId], references: [id], onDelete: Cascade)
+}
+
+// ─────────────────────────────────────────
+// 有酸素記録
+// ─────────────────────────────────────────
+
+// ランニング・ウォーキング・自転車などの有酸素運動ログ。
+// kcalBurned = MET × 体重 × 時間（h）で自動計算。
+model CardioLog {
+  id          String   @id @default(uuid())
+  userId      String
+  date        DateTime @db.Date
+  type        String // "running" | "walking" | "cycling" など
+  durationMin Int // 分
+  distanceKm  Float?
+  kcalBurned  Float?
+  createdAt   DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+// ─────────────────────────────────────────
+// カスタム種目
+// ─────────────────────────────────────────
+
+// ユーザーが独自に登録した種目（例: "ケーブルフライ"）。
+// userId=null のものはアプリ共通のプリセット種目。
+model CustomExercise {
+  id          String  @id @default(uuid())
+  userId      String?
+  name        String
+  muscleGroup String
+
+  user User? @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
