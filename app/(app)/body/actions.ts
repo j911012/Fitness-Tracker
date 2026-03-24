@@ -1,42 +1,56 @@
 "use server";
 
-import { revalidatePath } from "next/cache";
-import { prisma } from "@/lib/db/prisma";
+import { revalidateTag } from "next/cache";
 import { bodyRecordSchema } from "@/lib/validators/body";
+import {
+  upsertBodyRecordDB,
+  deleteBodyRecordDB,
+} from "@/apis/body.server";
+import type { Result } from "@/types/result";
+import type { BodyRecord } from "@prisma/client";
 
 // 仮のユーザーID（認証実装後に置き換える）
 const TEMP_USER_ID = "temp-user-001";
 
-export async function upsertBodyRecord(input: unknown) {
+// 体重記録を登録・更新する（同日は上書き）
+export async function upsertBodyRecord(
+  input: unknown,
+): Promise<Result<BodyRecord>> {
+  // zod でバリデーション。失敗時はフィールドエラーを返す
   const parsed = bodyRecordSchema.safeParse(input);
   if (!parsed.success) {
-    return { error: parsed.error.flatten().fieldErrors };
+    return {
+      isSuccess: false,
+      errorMessage: Object.values(parsed.error.flatten().fieldErrors)
+        .flat()
+        .join(" / "),
+    };
   }
 
   const { date, weight, bodyFat } = parsed.data;
 
-  const record = await prisma.bodyRecord.upsert({
-    where: {
-      userId_date: {
-        userId: TEMP_USER_ID,
-        date: new Date(date),
-      },
-    },
-    update: { weight, bodyFat },
-    create: {
-      userId: TEMP_USER_ID,
-      date: new Date(date),
-      weight,
-      bodyFat,
-    },
-  });
+  const result = await upsertBodyRecordDB(
+    TEMP_USER_ID,
+    new Date(date),
+    weight,
+    bodyFat,
+  );
 
-  revalidatePath("/body");
-  return { data: record };
+  if (result.isSuccess) {
+    // body-records タグのキャッシュを再検証し、グラフを最新化する
+    revalidateTag("body-records");
+  }
+
+  return result;
 }
 
-export async function deleteBodyRecord(id: string) {
-  await prisma.bodyRecord.delete({ where: { id } });
-  revalidatePath("/body");
-  return { success: true };
+// 体重記録を削除する
+export async function deleteBodyRecord(id: string): Promise<Result<void>> {
+  const result = await deleteBodyRecordDB(id);
+
+  if (result.isSuccess) {
+    revalidateTag("body-records");
+  }
+
+  return result;
 }
