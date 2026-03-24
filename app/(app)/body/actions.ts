@@ -1,5 +1,6 @@
 "use server";
 
+import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/db/prisma";
 import { bodyRecordSchema } from "@/lib/validators/body";
 
@@ -30,10 +31,12 @@ export async function upsertBodyRecord(input: unknown) {
     },
   });
 
+  revalidatePath("/body");
   return { data: record };
 }
 
 export async function deleteBodyRecord(id: string) {
   await prisma.bodyRecord.delete({ where: { id } });
+  revalidatePath("/body");
   return { success: true };
 }
