@@ -42,6 +42,18 @@ const presetExercises = [
 ];
 
 async function main() {
+  // テスト用ユーザー（認証実装前の仮ユーザー）
+  await prisma.user.upsert({
+    where: { id: "temp-user-001" },
+    update: {},
+    create: {
+      id: "temp-user-001",
+      email: "temp@example.com",
+      name: "テストユーザー",
+    },
+  });
+  console.log("Temp user seeded.");
+
   console.log("Seeding preset exercises...");
 
   for (const exercise of presetExercises) {
