@@ -1,5 +1,6 @@
 "use client";
 
+// recharts はクライアント専用ライブラリのため "use client" が必要
 import {
   LineChart,
   Line,
@@ -9,15 +10,30 @@ import {
   Tooltip,
   ResponsiveContainer,
 } from "recharts";
+import { use } from "react";
 import type { BodyRecord } from "@prisma/client";
+import type { Result } from "@/types/result";
 import { format } from "date-fns";
 import { ja } from "date-fns/locale";
 
 type Props = {
-  records: BodyRecord[];
+  // Server Component から Promise のまま渡し、use() で解凍する
+  // これにより page.tsx を同期コンポーネントのまま保てる
+  recordsPromise: Promise<Result<BodyRecord[]>>;
 };
 
-export function WeightLineChart({ records }: Props) {
+export default function WeightLineChart({ recordsPromise }: Props) {
+  // use() で Promise を解凍（Suspense と組み合わせて使用する）
+  const result = use(recordsPromise);
+
+  if (!result.isSuccess) {
+    return (
+      <p className="text-destructive text-sm">{result.errorMessage}</p>
+    );
+  }
+
+  const records = result.data;
+
   if (records.length === 0) {
     return (
       <p className="text-muted-foreground text-sm">
