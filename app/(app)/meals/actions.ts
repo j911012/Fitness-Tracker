@@ -55,7 +55,8 @@ export async function createMealLog(
 
   if (result.isSuccess) {
     // meal-logs タグのキャッシュを再検証してページを最新化する
-    revalidateTag("meal-logs");
+    // Next.js 16 から revalidateTag の第2引数 profile が必須になった
+    revalidateTag("meal-logs", {});
   }
 
   return result;
