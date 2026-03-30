@@ -38,7 +38,8 @@ export async function upsertBodyRecord(
 
   if (result.isSuccess) {
     // body-records タグのキャッシュを再検証し、グラフを最新化する
-    revalidateTag("body-records");
+    // Next.js 16 から revalidateTag の第2引数 profile が必須になった
+    revalidateTag("body-records", {});
   }
 
   return result;
@@ -49,7 +50,7 @@ export async function deleteBodyRecord(id: string): Promise<Result<void>> {
   const result = await deleteBodyRecordDB(id);
 
   if (result.isSuccess) {
-    revalidateTag("body-records");
+    revalidateTag("body-records", {});
   }
 
   return result;

@@ -5,9 +5,10 @@ export const foodItemSchema = z.object({
   name: z.string().min(1, "食品名を入力してください"),
   // 100gあたりの栄養素
   kcalPer100g: z.number().min(0, "0以上で入力してください"),
-  protein: z.number().min(0),
-  carbs: z.number().min(0),
-  fat: z.number().min(0),
+  // PFC は任意入力。未入力の場合は 0 として保存する
+  protein: z.number().min(0).default(0),
+  carbs: z.number().min(0).default(0),
+  fat: z.number().min(0).default(0),
 });
 
 // 食事ログの明細（何を何g食べたか）
